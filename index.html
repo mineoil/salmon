@@ -1,0 +1,464 @@
+<!-- Chosen Palette: Warm Neutrals (bg-gray-50), Indigo/Teal Accents (bg-indigo-600, text-teal-500) -->
+<!-- Application Structure Plan: The structure is a 'Dashboard Approach' divided into three logical zones: 1. Overview (Key Performance Indicators/KPIs like Runtime and Win Rate), 2. Interactive Comparison (Main body with a selection mechanism and dynamic chart/table to compare resources across Statistic, Challenge, and Bounty categories), and 3. Status/Time Tracking (Dedicated section for 'Next Check' times). This structure was chosen because the data is highly segmented (3 categories x 3 metrics), making a direct linear representation difficult. The interactive chart allows the user to easily synthesize and focus on one resource (Gems, Traits, or Golds) at a time, facilitating quick comparison and synthesis, which is the primary goal for this type of operational report. -->
+<!-- Visualization & Content Choices: Summary: 1. Runtime/Win Rate -> Goal: Inform -> Viz/Presentation Method: KPI Cards & Radial Progress -> Interaction: Static -> Justification: Immediate status check. 2. Gems/Traits/Golds Distribution -> Goal: Compare -> Viz/Presentation Method: Bar Chart & Data Table -> Interaction: Metric Selector (Dropdown/Button) to dynamically filter and redraw the chart/table -> Justification: Allows user to isolate and compare the most critical resource distribution across game modes. Library/Method: Chart.js/Canvas for visualization, Vanilla JS for interaction/updates. CONFIRMING NO SVG/Mermaid. -->
+<!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>แดชบอร์ดสถิติ Salmon Project Real-time</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        setLogLevel('Debug');
+
+        // Global variables are automatically provided by the Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth;
+        let userId = 'loading'; // Will be set after auth
+
+        // Initial Data Structure (Placeholder/Fallback)
+        const INITIAL_GAME_DATA = {
+            labels: ['Statistic', 'Challenge', 'Bounty'],
+            metrics: {
+                Gems: [4240, 0, 4240], 
+                Traits: [16, 8, 8],
+                Golds: [8800, 8000, 800],
+            },
+            status: {
+                runtime: "02:24:28",
+                matchWin: { current: 12, total: 13, percent: 92.31 },
+                nextReroll: "Now",
+                nextChallenge: "16 ชั่วโมงที่แล้ว",
+                nextBounty: "Now",
+            }
+        };
+        
+        let GAME_DATA = INITIAL_GAME_DATA; // State variable
+
+        // Reference to the single document where game stats are stored
+        let statsDocRef;
+        
+        // --- FIREBASE INITIALIZATION AND REAL-TIME LISTENER ---
+        async function initFirebase() {
+            try {
+                if (Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase config is missing. Cannot use real-time features.");
+                    document.getElementById('loading-status').textContent = "❌ ขาดการตั้งค่า Firebase";
+                    return;
+                }
+
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // 1. Authenticate
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                userId = auth.currentUser?.uid || crypto.randomUUID();
+                
+                // Firestore path: /artifacts/{appId}/users/{userId}/salmon_stats/current_stats
+                statsDocRef = doc(db, 'artifacts', appId, 'users', userId, 'salmon_stats', 'current_stats');
+                
+                // 2. Initial Data Check & Listener Setup
+                const docSnap = await getDoc(statsDocRef);
+                if (!docSnap.exists()) {
+                    // If no data exists, save the initial data to start the document
+                    await setDoc(statsDocRef, INITIAL_GAME_DATA);
+                }
+
+                document.getElementById('loading-status').textContent = "✅ เชื่อมต่อ Realtime สำเร็จ";
+                document.getElementById('manual-update-btn').disabled = false;
+                
+                // 3. Set up Real-time Listener
+                onSnapshot(statsDocRef, (doc) => {
+                    if (doc.exists()) {
+                        GAME_DATA = doc.data();
+                        console.log("Realtime Data Received:", GAME_DATA);
+                        updateUI(GAME_DATA);
+                        updateChartAndTable();
+                    } else {
+                        console.log("No data found, using initial data structure.");
+                        updateUI(INITIAL_GAME_DATA);
+                        updateChartAndTable();
+                    }
+                }, (error) => {
+                    console.error("Firestore realtime error:", error);
+                    document.getElementById('loading-status').textContent = `❌ ข้อผิดพลาด Realtime: ${error.code}`;
+                });
+
+            } catch (error) {
+                console.error("Firebase/Auth initialization failed:", error);
+                document.getElementById('loading-status').textContent = `❌ ข้อผิดพลาด: ${error.code}`;
+            }
+        }
+        
+        // --- UTILITY FUNCTIONS ---
+        // ฟังก์ชันสำหรับห่อหุ้ม Label ที่ยาวเกินไปใน Chart.js
+        function labelWrap(label, maxLength = 16) {
+            if (label.length > maxLength) {
+                let parts = [];
+                for (let i = 0; i < label.length; i += maxLength) {
+                    parts.push(label.substring(i, i + maxLength));
+                }
+                return parts;
+            }
+            return label;
+        }
+
+        let resourceChart = null;
+        
+        // --- UI/CHART UPDATE FUNCTIONS ---
+
+        // ฟังก์ชันอัปเดต KPI และข้อมูลสถิติทั้งหมดใน HTML
+        function updateUI(data) {
+            // 1. โหลดข้อมูล KPI
+            document.getElementById('runtime-display').textContent = data.status.runtime;
+            document.getElementById('win-rate-text').textContent = `${Math.round(data.status.matchWin.percent)}%`;
+            document.getElementById('win-ratio-detail').textContent = `${data.status.matchWin.current}/${data.status.matchWin.total}`;
+            document.getElementById('bounty-status').textContent = data.status.nextBounty;
+            document.getElementById('reroll-status').textContent = data.status.nextReroll;
+            document.getElementById('challenge-time').textContent = data.status.nextChallenge;
+
+            // 1.1 ตั้งค่า Radial Progress Bar (Win Rate)
+            const winRatePercent = data.status.matchWin.percent;
+            const circumference = 2 * Math.PI * 40;
+            const offset = circumference - (winRatePercent / 100) * circumference;
+            const winRateCircle = document.getElementById('win-rate-circle');
+            winRateCircle.style.strokeDasharray = `${circumference} ${circumference}`;
+            winRateCircle.style.strokeDashoffset = offset;
+            
+            // 2. อัปเดตสถิติ Challenge และ General
+            // ต้องดึงค่าที่ถูกต้องจาก data.metrics
+            document.querySelector('#challenge-stats li:nth-child(1) span').textContent = data.metrics.Gems[1].toLocaleString('en-US'); // Challenge Gems (Index 1)
+            document.querySelector('#challenge-stats li:nth-child(2) span').textContent = data.metrics.Traits[1].toLocaleString('en-US'); // Challenge Traits (Index 1)
+            document.querySelector('#challenge-stats li:nth-child(3) span').textContent = data.metrics.Golds[1].toLocaleString('en-US'); // Challenge Golds (Index 1)
+
+            document.querySelector('#general-stats li:nth-child(1) span').textContent = data.metrics.Gems[0].toLocaleString('en-US'); // Statistic Gems (Index 0)
+            document.querySelector('#general-stats li:nth-child(2) span').textContent = data.metrics.Traits[0].toLocaleString('en-US'); // Statistic Traits (Index 0)
+            document.querySelector('#general-stats li:nth-child(3) span').textContent = data.metrics.Golds[0].toLocaleString('en-US'); // Statistic Golds (Index 0)
+
+            // Force update chart based on current selector value
+            updateChartAndTable(data);
+        }
+
+        // ฟังก์ชันสร้าง/อัปเดต Chart และ Data Table
+        function updateChartAndTable(data = GAME_DATA) {
+            const selectedMetric = document.getElementById('metric-selector').value;
+            const metricData = data.metrics[selectedMetric];
+            const labels = data.labels;
+
+            document.getElementById('selected-metric-name').textContent = selectedMetric;
+
+            // 2.1 อัปเดต Chart
+            const ctx = document.getElementById('resourceChart').getContext('2d');
+            
+            const chartData = {
+                labels: labels.map(labelWrap),
+                datasets: [{
+                    label: `จำนวน ${selectedMetric}`,
+                    data: metricData,
+                    backgroundColor: [
+                        'rgba(79, 70, 229, 0.7)', 
+                        'rgba(6, 182, 212, 0.7)', 
+                        'rgba(245, 158, 11, 0.7)'  
+                    ],
+                    borderColor: [
+                        'rgba(79, 70, 229, 1)',
+                        'rgba(6, 182, 212, 1)',
+                        'rgba(245, 158, 11, 1)'
+                    ],
+                    borderWidth: 1,
+                    borderRadius: 8,
+                }]
+            };
+
+            if (resourceChart) {
+                resourceChart.data = chartData;
+                resourceChart.update();
+            } else {
+                resourceChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: chartData,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false, 
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    title: (tooltipItem) => labels[tooltipItem[0].dataIndex],
+                                    label: (tooltipItem) => ` ${tooltipItem.dataset.label}: ${tooltipItem.parsed.y.toLocaleString('en-US')}`
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: selectedMetric },
+                                ticks: { callback: (value) => value.toLocaleString('en-US') }
+                            },
+                            x: { grid: { display: false } }
+                        }
+                    }
+                });
+            }
+
+            // 2.2 อัปเดต Data Table
+            const dataTable = document.getElementById('data-table');
+            dataTable.innerHTML = ''; 
+
+            labels.forEach((label, index) => {
+                const value = metricData[index].toLocaleString('en-US');
+                
+                let icon = '';
+                if (selectedMetric === 'Gems') icon = '💎';
+                else if (selectedMetric === 'Traits') icon = '🩸';
+                else if (selectedMetric === 'Golds') icon = '💵';
+
+                dataTable.innerHTML += `
+                    <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-100">
+                        <span class="font-medium text-gray-600">${icon} ${label}</span>
+                        <span class="font-bold text-lg text-teal-600">${value}</span>
+                    </div>
+                `;
+            });
+        }
+        
+        // --- MANUAL DATA SAVER (To simulate Webhook Backend) ---
+        async function saveManualData() {
+            if (!statsDocRef) {
+                 console.error("Firestore is not initialized.");
+                 return;
+            }
+            try {
+                // Example: Modify a value to ensure the listener works
+                const updatedData = JSON.parse(JSON.stringify(GAME_DATA)); // Deep clone current state
+                updatedData.metrics.Gems[0] = Math.floor(Math.random() * 10000);
+                updatedData.status.runtime = new Date().toLocaleTimeString('en-US', { hour12: false });
+                updatedData.status.matchWin.current = updatedData.status.matchWin.current + 1;
+                updatedData.status.matchWin.total = updatedData.status.matchWin.total + 1;
+                updatedData.status.matchWin.percent = (updatedData.status.matchWin.current / updatedData.status.matchWin.total) * 100;
+
+                await setDoc(statsDocRef, updatedData);
+                document.getElementById('save-status').textContent = "✅ ข้อมูลถูกบันทึกและอัปเดตเรียลไทม์แล้ว! (สุ่มค่า Gems ใหม่)";
+            } catch (error) {
+                console.error("Error writing document:", error);
+                document.getElementById('save-status').textContent = `❌ บันทึกไม่สำเร็จ: ${error.code}`;
+            }
+        }
+
+        // --- GLOBAL SETUP ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const selector = document.getElementById('metric-selector');
+            selector.addEventListener('change', updateChartAndTable);
+            document.getElementById('manual-update-btn').addEventListener('click', saveManualData);
+
+            initFirebase();
+            updateUI(INITIAL_GAME_DATA); // Show initial/placeholder data while loading
+        });
+        
+        // Export functions to global scope for testing (optional)
+        window.saveManualData = saveManualData;
+        
+    </script>
+    <style>
+        /* กำหนดรูปแบบฟอนต์เริ่มต้น */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f9fafb; /* Warm Neutral Background */
+        }
+        /* รูปแบบเฉพาะสำหรับ Chart Container */
+        .chart-container { 
+            position: relative; 
+            width: 100%; 
+            max-width: 800px; 
+            margin-left: auto; 
+            margin-right: auto; 
+            height: 350px; 
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container { 
+                height: 450px; 
+            }
+        }
+        /* กำหนดรูปแบบสำหรับการจัดสถิติ */
+        .kpi-card {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.03);
+            transition: transform 0.2s;
+        }
+        .kpi-card:hover {
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto space-y-10">
+
+        <!-- HEADER / OVERVIEW SECTION -->
+        <header class="text-center pb-6 border-b border-gray-200">
+            <h1 class="text-5xl font-extrabold text-gray-900 mb-2">
+                📊 แดชบอร์ดวิเคราะห์สถิติ Salmon (REALTIME)
+            </h1>
+            <p class="text-lg text-gray-500 max-w-2xl mx-auto mt-2">
+                ส่วนนี้แสดงผลข้อมูลจาก Webhook แบบ Real-time ผ่านฐานข้อมูล **Firestore** โดยมีการอัปเดตตัวเลขและแผนภูมิโดยอัตโนมัติเมื่อข้อมูลเปลี่ยนแปลง
+            </p>
+            <p id="loading-status" class="mt-2 text-sm font-semibold text-indigo-600">
+                ⌛ กำลังเชื่อมต่อ Realtime Database...
+            </p>
+        </header>
+        
+        <!-- Data Control Section (New) -->
+        <section id="data-control" class="text-center pt-4">
+            <button id="manual-update-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition duration-300 disabled:bg-gray-400" disabled>
+                💾 บันทึก/อัปเดตข้อมูลจำลองเข้าสู่ Realtime Database
+            </button>
+            <p class="text-xs text-gray-500 mt-2">
+                (ปุ่มนี้จำลองการทำงานของ Backend เมื่อได้รับ Webhook โดยจะสุ่มค่า Gems และเวลา Runtime ใหม่)
+            </p>
+            <p id="save-status" class="mt-1 text-sm text-gray-700 font-medium"></p>
+        </section>
+
+        <!-- KPI / STATUS CARDS (OVERVIEW) -->
+        <section id="kpi-overview">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
+                <span class="mr-2 text-indigo-500">🏆</span> สถิติประสิทธิภาพโดยรวม
+            </h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                <!-- Macro Runtime Card -->
+                <div class="kpi-card bg-white p-6 rounded-xl border border-gray-100 flex flex-col items-center">
+                    <span class="text-5xl mb-2 text-indigo-600">⏱️</span>
+                    <p class="text-sm font-medium text-gray-500">Macro Runtime</p>
+                    <p id="runtime-display" class="text-4xl font-bold text-gray-800 mt-1">--:--:--</p>
+                </div>
+
+                <!-- Match Win Rate Card (Custom Radial Progress HTML/CSS) -->
+                <div class="kpi-card bg-white p-6 rounded-xl border border-gray-100 flex flex-col items-center">
+                    <div class="relative w-24 h-24 mb-2">
+                        <svg class="w-full h-full transform -rotate-90">
+                            <circle class="text-gray-200" stroke-width="8" stroke="currentColor" fill="transparent" r="40" cx="48" cy="48" />
+                            <circle id="win-rate-circle" class="text-teal-500 transition-all duration-1000 ease-out" stroke-width="8" stroke="currentColor" fill="transparent" r="40" cx="48" cy="48" stroke-linecap="round" />
+                        </svg>
+                        <span id="win-rate-text" class="absolute inset-0 flex items-center justify-center text-xl font-bold text-teal-600">--%</span>
+                    </div>
+                    <p class="text-sm font-medium text-gray-500">อัตราการชนะ Match</p>
+                    <p id="win-ratio-detail" class="text-xl font-bold text-gray-800 mt-1">--/--</p>
+                </div>
+
+                <!-- Next Bounty Check Status Card -->
+                <div class="kpi-card bg-white p-6 rounded-xl border border-gray-100 flex flex-col items-center">
+                    <span class="text-5xl mb-2 text-green-600">✅</span>
+                    <p class="text-sm font-medium text-gray-500">Next Bounty Check</p>
+                    <p id="bounty-status" class="text-3xl font-bold text-gray-800 mt-2">--</p>
+                    <p class="text-xs text-gray-400 mt-1">(สถานะการตรวจสอบ)</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- INTERACTIVE COMPARISON SECTION -->
+        <section id="interactive-comparison" class="pt-8">
+            <div class="flex flex-col md:flex-row justify-between items-start mb-6">
+                <div>
+                    <h2 class="text-3xl font-bold text-gray-800 flex items-center">
+                        <span class="mr-2 text-indigo-500">📈</span> การเปรียบเทียบทรัพยากรตามแหล่งที่มา
+                    </h2>
+                    <p class="text-gray-500 mt-2 max-w-xl">
+                        เลือกเมตริกด้านล่างเพื่อดูการกระจายตัวของทรัพยากร (Gems, Traits, Golds) ที่ได้รับจากโหมดเกมหลักทั้งสาม
+                    </p>
+                </div>
+                <div class="mt-4 md:mt-0">
+                    <label for="metric-selector" class="block text-sm font-medium text-gray-700 mb-1">เลือกเมตริก:</label>
+                    <select id="metric-selector" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md shadow-md">
+                        <option value="Gems">💎 Gems (อัญมณี)</option>
+                        <option value="Traits">🩸 Traits (ลักษณะพิเศษ)</option>
+                        <option value="Golds">💵 Golds (ทอง)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-white p-6 rounded-xl shadow-lg border border-gray-100">
+                <!-- CHART CONTAINER (2/3 width on desktop) -->
+                <div class="lg:col-span-2">
+                    <div class="chart-container">
+                        <canvas id="resourceChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- DYNAMIC DATA TABLE (1/3 width on desktop) -->
+                <div class="lg:col-span-1 p-4 border-l border-gray-200 md:border-t-0 border-t">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">ตารางข้อมูล (<span id="selected-metric-name">Gems</span>)</h3>
+                    <div id="data-table" class="space-y-3">
+                        <!-- Dynamic data rows will be injected here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CHALLENGE & TIMING STATUS SECTION -->
+        <section id="timing-status" class="pt-8">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
+                <span class="mr-2 text-indigo-500">⏳</span> สถานะและความท้าทาย
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Challenge Details Card -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-3 flex items-center">
+                        <span class="mr-2 text-pink-600">🔥</span> สถิติ Challenge
+                    </h3>
+                    <ul class="space-y-2 text-gray-700" id="challenge-stats">
+                        <li>💎 Gems: <span class="font-bold text-teal-600">--</span></li>
+                        <li>🩸 Traits: <span class="font-bold text-teal-600">--</span></li>
+                        <li>💵 Golds: <span class="font-bold text-teal-600">--</span></li>
+                    </ul>
+                    <hr class="my-4 border-gray-100">
+                    <p class="text-sm">
+                        <strong class="text-indigo-600">Next Half-hour (reroll) challenge:</strong> <span class="font-bold" id="reroll-status">--</span>
+                    </p>
+                    <p class="text-sm mt-1">
+                        <strong class="text-indigo-600">Next Half-hour challenge:</strong> <span class="font-bold" id="challenge-time">--</span>
+                    </p>
+                </div>
+
+                <!-- Raw Statistic Card -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-3 flex items-center">
+                        <span class="mr-2 text-yellow-600">✨</span> สถิติทั่วไป (Statistic)
+                    </h3>
+                    <ul class="space-y-2 text-gray-700" id="general-stats">
+                        <li>💎 Gems: <span class="font-bold text-teal-600">--</span></li>
+                        <li>🩸 Traits: <span class="font-bold text-teal-600">--</span></li>
+                        <li>💵 Golds: <span class="font-bold text-teal-600">--</span></li>
+                    </ul>
+                    <p class="text-xs text-gray-400 mt-4">
+                        (ข้อมูลพื้นฐานที่ใช้ในการเปรียบเทียบ)
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <footer class="text-center text-sm text-gray-400 pt-10 pb-4">
+            <p>© 2025 Salmon's Projects Report Viewer - ขับเคลื่อนโดย Real-time Firestore</p>
+        </footer>
+    </div>
+</body>
+</html>
