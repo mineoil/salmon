@@ -23,7 +23,9 @@
 
         // Global variables are automatically provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        // --- FIX: Use a safe check for __firebase_config and __initial_auth_token ---
+        const firebaseConfigString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+        const firebaseConfig = JSON.parse(firebaseConfigString);
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         let db, auth;
@@ -56,7 +58,11 @@
             try {
                 if (Object.keys(firebaseConfig).length === 0) {
                     console.error("Firebase config is missing. Cannot use real-time features.");
-                    document.getElementById('loading-status').textContent = "❌ ขาดการตั้งค่า Firebase";
+                    document.getElementById('loading-status').textContent = "⚠️ รันนอก Canvas: ใช้ข้อมูลจำลอง (Realtime ถูกปิด)";
+                    // If running outside Canvas, show placeholder data indefinitely
+                    updateUI(INITIAL_GAME_DATA);
+                    updateChartAndTable();
+                    document.getElementById('manual-update-btn').disabled = true; // Disable button if no database
                     return;
                 }
 
@@ -105,7 +111,10 @@
 
             } catch (error) {
                 console.error("Firebase/Auth initialization failed:", error);
-                document.getElementById('loading-status').textContent = `❌ ข้อผิดพลาด: ${error.code}`;
+                // Fallback display if initialization fails for other reasons
+                document.getElementById('loading-status').textContent = `❌ ข้อผิดพลาด: ${error.code} (ใช้ข้อมูลจำลอง)`;
+                updateUI(INITIAL_GAME_DATA);
+                updateChartAndTable();
             }
         }
         
@@ -251,6 +260,11 @@
         // --- MANUAL DATA SAVER (To simulate Webhook Backend) ---
         async function saveManualData() {
             if (!statsDocRef) {
+                 // Check if the button is disabled because Firebase is not initialized
+                 if (document.getElementById('manual-update-btn').disabled) {
+                     document.getElementById('save-status').textContent = "⚠️ ไม่สามารถบันทึกได้: Firebase ถูกปิด (ใช้ข้อมูลจำลอง)";
+                     return;
+                 }
                  console.error("Firestore is not initialized.");
                  return;
             }
@@ -486,3 +500,4 @@
     </div>
 </body>
 </html>
+
