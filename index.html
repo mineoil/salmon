@@ -144,15 +144,22 @@
             winRateCircle.style.strokeDasharray = `${circumference} ${circumference}`;
             winRateCircle.style.strokeDashoffset = offset;
             
-            // 2. อัปเดตสถิติ Challenge และ General
-            // ต้องดึงค่าที่ถูกต้องจาก data.metrics
-            document.querySelector('#challenge-stats li:nth-child(1) span').textContent = data.metrics.Gems[1].toLocaleString('en-US'); // Challenge Gems (Index 1)
-            document.querySelector('#challenge-stats li:nth-child(2) span').textContent = data.metrics.Traits[1].toLocaleString('en-US'); // Challenge Traits (Index 1)
-            document.querySelector('#challenge-stats li:nth-child(3) span').textContent = data.metrics.Golds[1].toLocaleString('en-US'); // Challenge Golds (Index 1)
+            // 2. อัปเดตสถิติ Challenge และ General (แก้ไขให้ใช้ ID ที่กำหนดชัดเจน)
+            
+            // สถิติทั่วไป (Statistic) - Index 0
+            document.getElementById('general-gems').textContent = data.metrics.Gems[0].toLocaleString('en-US'); 
+            document.getElementById('general-traits').textContent = data.metrics.Traits[0].toLocaleString('en-US'); 
+            document.getElementById('general-golds').textContent = data.metrics.Golds[0].toLocaleString('en-US'); 
+            
+            // สถิติ Challenge - Index 1
+            document.getElementById('challenge-gems').textContent = data.metrics.Gems[1].toLocaleString('en-US');
+            document.getElementById('challenge-traits').textContent = data.metrics.Traits[1].toLocaleString('en-US'); 
+            document.getElementById('challenge-golds').textContent = data.metrics.Golds[1].toLocaleString('en-US'); 
 
-            document.querySelector('#general-stats li:nth-child(1) span').textContent = data.metrics.Gems[0].toLocaleString('en-US'); // Statistic Gems (Index 0)
-            document.querySelector('#general-stats li:nth-child(2) span').textContent = data.metrics.Traits[0].toLocaleString('en-US'); // Statistic Traits (Index 0)
-            document.querySelector('#general-stats li:nth-child(3) span').textContent = data.metrics.Golds[0].toLocaleString('en-US'); // Statistic Golds (Index 0)
+            // สถิติ Bounty - Index 2
+            document.getElementById('bounty-gems').textContent = data.metrics.Gems[2].toLocaleString('en-US');
+            document.getElementById('bounty-traits').textContent = data.metrics.Traits[2].toLocaleString('en-US'); 
+            document.getElementById('bounty-golds').textContent = data.metrics.Golds[2].toLocaleString('en-US'); 
 
             // Force update chart based on current selector value
             updateChartAndTable(data);
@@ -419,38 +426,55 @@
             <h2 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
                 <span class="mr-2 text-indigo-500">⏳</span> สถานะและความท้าทาย
             </h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Challenge Details Card -->
-                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
-                    <h3 class="text-xl font-semibold text-gray-700 mb-3 flex items-center">
-                        <span class="mr-2 text-pink-600">🔥</span> สถิติ Challenge
-                    </h3>
-                    <ul class="space-y-2 text-gray-700" id="challenge-stats">
-                        <li>💎 Gems: <span class="font-bold text-teal-600">--</span></li>
-                        <li>🩸 Traits: <span class="font-bold text-teal-600">--</span></li>
-                        <li>💵 Golds: <span class="font-bold text-teal-600">--</span></li>
-                    </ul>
-                    <hr class="my-4 border-gray-100">
-                    <p class="text-sm">
-                        <strong class="text-indigo-600">Next Half-hour (reroll) challenge:</strong> <span class="font-bold" id="reroll-status">--</span>
-                    </p>
-                    <p class="text-sm mt-1">
-                        <strong class="text-indigo-600">Next Half-hour challenge:</strong> <span class="font-bold" id="challenge-time">--</span>
-                    </p>
-                </div>
-
-                <!-- Raw Statistic Card -->
+            <!-- เปลี่ยนจาก 2 คอลัมน์ เป็น 3 คอลัมน์ เพื่อรองรับ Bounty Card ใหม่ -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6"> 
+                
+                 <!-- Raw Statistic Card (Index 0) -->
                 <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
                     <h3 class="text-xl font-semibold text-gray-700 mb-3 flex items-center">
                         <span class="mr-2 text-yellow-600">✨</span> สถิติทั่วไป (Statistic)
                     </h3>
                     <ul class="space-y-2 text-gray-700" id="general-stats">
-                        <li>💎 Gems: <span class="font-bold text-teal-600">--</span></li>
-                        <li>🩸 Traits: <span class="font-bold text-teal-600">--</span></li>
-                        <li>💵 Golds: <span class="font-bold text-teal-600">--</span></li>
+                        <li>💎 Gems: <span class="font-bold text-teal-600" id="general-gems">--</span></li>
+                        <li>🩸 Traits: <span class="font-bold text-teal-600" id="general-traits">--</span></li>
+                        <li>💵 Golds: <span class="font-bold text-teal-600" id="general-golds">--</span></li>
                     </ul>
                     <p class="text-xs text-gray-400 mt-4">
                         (ข้อมูลพื้นฐานที่ใช้ในการเปรียบเทียบ)
+                    </p>
+                </div>
+                
+                <!-- Challenge Details Card (Index 1) -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-3 flex items-center">
+                        <span class="mr-2 text-pink-600">🔥</span> สถิติ Challenge
+                    </h3>
+                    <ul class="space-y-2 text-gray-700" id="challenge-stats">
+                        <li>💎 Gems: <span class="font-bold text-teal-600" id="challenge-gems">--</span></li>
+                        <li>🩸 Traits: <span class="font-bold text-teal-600" id="challenge-traits">--</span></li>
+                        <li>💵 Golds: <span class="font-bold text-teal-600" id="challenge-golds">--</span></li>
+                    </ul>
+                    <hr class="my-4 border-gray-100">
+                    <p class="text-sm">
+                        <strong class="text-indigo-600">Next Half-hour (reroll) check:</strong> <span class="font-bold" id="reroll-status">--</span>
+                    </p>
+                    <p class="text-sm mt-1">
+                        <strong class="text-indigo-600">Next Challenge time:</strong> <span class="font-bold" id="challenge-time">--</span>
+                    </p>
+                </div>
+
+                <!-- Bounty Details Card (ใหม่ - Index 2) -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-3 flex items-center">
+                        <span class="mr-2 text-indigo-600">💰</span> สถิติ Bounty
+                    </h3>
+                    <ul class="space-y-2 text-gray-700" id="bounty-stats">
+                        <li>💎 Gems: <span class="font-bold text-teal-600" id="bounty-gems">--</span></li>
+                        <li>🩸 Traits: <span class="font-bold text-teal-600" id="bounty-traits">--</span></li>
+                        <li>💵 Golds: <span class="font-bold text-teal-600" id="bounty-golds">--</span></li>
+                    </ul>
+                    <p class="text-xs text-gray-400 mt-4">
+                        (ข้อมูลจากการทำภารกิจ Bounty)
                     </p>
                 </div>
             </div>
